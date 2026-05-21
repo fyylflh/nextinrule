@@ -1,4 +1,5 @@
-console.log(`spotify-json-2025.06.20`);
+  $notification.post('json命中', '', $request.url);
+  console.log(`spotify-json-2025.06.20`);
 let url = $request.url;
 // console.log(`原始url:${url}`);
 if (url.includes('com:443')) {
