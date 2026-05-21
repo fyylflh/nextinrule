@@ -19,15 +19,19 @@ try {
         if (url.includes("bootstrap/v1/bootstrap") && method === postMethod) {
             let bootstrapResponseType = protobuf.Root.fromJSON(spotifyJson).lookupType("BootstrapResponse");
             let bootstrapResponseObj = bootstrapResponseType.decode(binaryBody);
-            accountAttributesMapObj = bootstrapResponseObj.ucsResponseV0.success.customization.success.accountAttributesSuccess.accountAttributes;
+            const customizationSuccess = bootstrapResponseObj.ucsResponseV0.success.customization.success;
+            accountAttributesMapObj = customizationSuccess.accountAttributesSuccess.accountAttributes;
             processMapObj(accountAttributesMapObj);
+            processAssignedValues(customizationSuccess.resolveSuccess && customizationSuccess.resolveSuccess.configuration && customizationSuccess.resolveSuccess.configuration.assignedValues);
             body = bootstrapResponseType.encode(bootstrapResponseObj).finish();
             console.log("bootstrap");
         } else if (url.includes("user-customization-service/v1/customize") && method === postMethod) {
             let ucsResponseWrapperType = protobuf.Root.fromJSON(spotifyJson).lookupType("UcsResponseWrapper");
             let ucsResponseWrapperMessage = ucsResponseWrapperType.decode(binaryBody);
-            accountAttributesMapObj = ucsResponseWrapperMessage.success.accountAttributesSuccess.accountAttributes;
+            const ucsSuccess = ucsResponseWrapperMessage.success;
+            accountAttributesMapObj = ucsSuccess.accountAttributesSuccess.accountAttributes;
             processMapObj(accountAttributesMapObj);
+            processAssignedValues(ucsSuccess.resolveSuccess && ucsSuccess.resolveSuccess.configuration && ucsSuccess.resolveSuccess.configuration.assignedValues);
             body = ucsResponseWrapperType.encode(ucsResponseWrapperMessage).finish();
             console.log("customize");
         } else {
@@ -76,7 +80,8 @@ function processMapObj(accountAttributesMapObj){
     accountAttributesMapObj['audio-quality'] = {stringValue : '1'};
     accountAttributesMapObj['shuffle-algorithm'] = {stringValue : 'RANDOM'};
     accountAttributesMapObj['is-thalia'] = {boolValue : true};
-    accountAttributesMapObj['shuffle'] = {boolValue : false};
+    accountAttributesMapObj['shuffle-eligible'] = {boolValue : true};
+    delete accountAttributesMapObj['shuffle'];
     accountAttributesMapObj['is-pigeon'] = {boolValue : true};
     // 主页右下角的会员广告tab
     accountAttributesMapObj['nft-disabled'] = {stringValue : '1'};
@@ -103,4 +108,106 @@ function processMapObj(accountAttributesMapObj){
     // 决定customize是否有效 有的用户没有此属性
     accountAttributesMapObj['com.spotify.madprops.use.ucs.product.state'] = {boolValue : true};
     accountAttributesMapObj['com.spotify.madprops.delivered.by.ucs'] = {boolValue : true};
+    accountAttributesMapObj['is-eligible-premium-unboxing'] = {boolValue : true};
+
+    delete accountAttributesMapObj['ad-use-adlogic'];
+    delete accountAttributesMapObj['ad-catalogues'];
+    delete accountAttributesMapObj['payment-state'];
+    delete accountAttributesMapObj['last-premium-activation-date'];
+}
+
+function processAssignedValues(assignedValuesArray) {
+    if (!Array.isArray(assignedValuesArray)) return;
+
+    const removeNames = [
+        'enable_common_capping',
+        'enable_pns_common_capping',
+        'enable_pick_and_shuffle_common_capping',
+        'enable_pick_and_shuffle_dynamic_cap',
+        'enable_free_on_demand_experiment',
+        'enable_free_on_demand_context_menu_experiment',
+        'pick_and_shuffle_timecap',
+        'enable_mft_plus_queue',
+        'enable_mft_plus_extended_queue',
+        'is_remove_from_queue_enabled_for_mft_plus',
+        'is_reordering_for_mft_plus_allowed',
+        'should_nova_scroll_use_scrollsita',
+        'enable_sillywalk_rules',
+        'is_premium_only',
+        'init_retry_amount',
+        'enable_upsell'
+    ];
+    const removeScopes = [
+        'ios-feature-queue',
+        'core-common-capping',
+        'ios-feature-shuffletoggleupsell',
+        'ios-system-smartshuffle',
+        'ios-feature-audiobook-capping',
+        'core-audiobook-sequence-provider-feature',
+        'ios-feature-smartshuffle',
+        'ios-feature-upsell'
+    ];
+    const blacklistKeywords = [
+        'upsell',
+        'capping',
+        'timecap',
+        'limit',
+        'restrict',
+        'shuffle_eligible_toggle',
+        'pick_and_shuffle',
+        'premium_only',
+        'reinventfree'
+    ];
+
+    for (let i = assignedValuesArray.length - 1; i >= 0; i--) {
+        const item = assignedValuesArray[i];
+        const propId = item.propertyId || {};
+        const name = propId.name || '';
+        const scope = propId.scope || '';
+        const fullPath = (scope ? scope + '/' : '') + name;
+
+        if (name === 'enable_pick_and_shuffle_common_capping') {
+            setProtobufEnum(item, 'Disabled');
+            continue;
+        }
+        if (name === 'enable_pick_and_shuffle_dynamic_cap') {
+            setProtobufBool(item, false);
+            continue;
+        }
+        if (name === 'enable_playback_timeout_service' || name === 'enable_playback_timeout_error_ui') {
+            setProtobufBool(item, false);
+            continue;
+        }
+        if (name === 'playback_timeout_action') {
+            setProtobufEnum(item, 'Nothing');
+            continue;
+        }
+        if (name === 'is_enabled_for_on_demand_trial' || name === 'enable_call_trials_facade') {
+            setProtobufBool(item, true);
+            continue;
+        }
+        if (name === 'shuffle_eligible' || name === 'shuffle_enabled') {
+            setProtobufBool(item, true);
+            continue;
+        }
+
+        const isBlacklisted = removeScopes.includes(scope) || removeNames.includes(name) ||
+            blacklistKeywords.some(keyword => fullPath.toLowerCase().includes(keyword));
+
+        if (isBlacklisted) {
+            assignedValuesArray.splice(i, 1);
+        }
+    }
+}
+
+function setProtobufBool(item, val) {
+    delete item.intValue;
+    delete item.enumValue;
+    item.boolValue = {value: val};
+}
+
+function setProtobufEnum(item, val) {
+    delete item.intValue;
+    delete item.boolValue;
+    item.enumValue = {value: val};
 }
